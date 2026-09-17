@@ -1,0 +1,85 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Job id is the required status context — do not rename without updating
+  # branch protection.
+  run-tests:
+    name: run-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Repo declares no .nvmrc / engines / Dockerfile base image. Pinned to
+      # Node 22 (current LTS), matching the convention used in
+      # Main-Street-Mentor/msm-context-service's workflow.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # There is no root package-lock.json / install step: the root
+      # package.json has no dependencies and no scripts. Each test suite
+      # with its own package.json installs from its own lockfile below.
+
+      # --- CI-runnable suites -------------------------------------------------
+      # These run headless, hermetically, and require no external service,
+      # API key, or interactive Claude/OpenCode session.
+
+      - name: brainstorm-server — install
+        working-directory: tests/brainstorm-server
+        run: npm ci
+
+      - name: brainstorm-server — integration tests
+        working-directory: tests/brainstorm-server
+        run: npm test
+
+      - name: brainstorm-server — WebSocket protocol unit tests
+        working-directory: tests/brainstorm-server
+        run: node ws-protocol.test.js
+
+      - name: codex-plugin-sync — dry-run regression test
+        run: bash tests/codex-plugin-sync/test-sync-to-codex-plugin.sh
+
+      - name: opencode plugin — non-integration tests
+        run: bash tests/opencode/run-tests.sh
+
+      # --- Excluded suites (not run here) -------------------------------------
+      # tests/claude-code/**            — spawns the `claude` CLI headless
+      #                                    (`claude -p ...`); needs an
+      #                                    authenticated Claude Code session /
+      #                                    API key CI does not have.
+      # tests/explicit-skill-requests/** — same: drives the `claude` CLI.
+      # tests/skill-triggering/**        — same: drives the `claude` CLI.
+      # tests/subagent-driven-dev/**     — same: drives the `claude` CLI
+      #                                    (see run-test.sh's `claude -p`).
+      # tests/opencode/test-tools.sh,
+      # tests/opencode/test-priority.sh  — the suite's own "--integration"
+      #                                    tier; requires a running OpenCode
+      #                                    instance, not just the plugin
+      #                                    files. Not run by run-tests.sh
+      #                                    unless --integration is passed.
+      # tests/brainstorm-server/windows-lifecycle.test.sh — pre-existing bug,
+      #                                    unrelated to Claude/API access: it
+      #                                    polls for a `.server-info` file in
+      #                                    the project dir, but the current
+      #                                    server writes
+      #                                    `state/server-info` instead, so it
+      #                                    fails on a clean checkout of `main`
+      #                                    with no code change involved.
+      #                                    Verified locally (see PR). Running
+      #                                    it here would make the gate
+      #                                    permanently red for a reason
+      #                                    unrelated to the change under
+      #                                    review. Flagged for a separate fix.
